@@ -126,16 +126,35 @@ if __name__ == "__main__":
     data = {
         "front_matter": [
             {
-                "title": "My Book Title\n\nBy Author Name",
+                "title": "How To Write Your Wrongs\n\nBy M.K. Jowling",
                 "content": ""  # Title page has no body
             },
             {
+                "title": "Copyright Page",
+                "content": """<b>Copyright</b> ©️ 2025 by M.K. Jowling <br/><br/>\
+All rights reserved. No part of this book may be reproduced, distributed, or transmitted in any form or by any means, \
+including photocopying, recording, or other electronic or mechanical methods, without prior written permission of the publisher, except in the case of \
+brief quotations embodied in critical reviews and certain other non-commercial uses permitted by copyright law. <br/><br/>\
+This is a work of fiction. Names, characters, places, and incidents are the product of the author's imagination or are used fictitiously. \
+Any resemblance to actual persons, living or dead, events, or locales is entirely coincidental. <br/><br/>\
+Cover design by Coco Lajuan Studios <br/>\
+Interior design by Apollo Studios <br/>\
+Published by McAuthor Publishing House <br/>\
+First Edition: April, 2025 <br/><br/>\
+Printed in the United States of America <br/><br/>\
+10 9 8 7 6 5 4 3 2 1"""
+            },
+            {
                 "title": "Dedication",
+                "content": "Thank you to all who supported me."
+            },
+            {
+                "title": "Foreword",
                 "content": "To those who inspire."
             },
             {
-                "title": "Acknowledgments",
-                "content": "Thank you to all who supported me."
+                "title": "Prologue",
+                "content": "To those who inspire."
             }
         ],
         "chapters": [
@@ -152,12 +171,16 @@ if __name__ == "__main__":
         ],
         "back_matter": [
             {
-                "title": "Appendix A",
+                "title": "Epilogue",
                 "content": "Supplemental data and technical notes."
             },
             {
-                "title": "Bibliography",
-                "content": "1. Author, Book Title\n2. Another Source"
+                "title": "Afterword",
+                "content": "Supplemental data and technical notes."
+            },
+            {
+                "title": "Acknowledgments",
+                "content": "The Creator of the Universe and all who supported me."
             }
         ]
     }
