@@ -1,188 +1,238 @@
+
+from reportlab.lib.pagesizes import letter
 from reportlab.platypus import (
-    BaseDocTemplate, PageTemplate, Frame, Paragraph,
-    Spacer, Image, PageBreak, TableOfContents
+    BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, PageBreak, Image
 )
+from reportlab.platypus.tableofcontents import TableOfContents
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 import os
+from reportlab.pdfgen import canvas
 
-class ChapterTrackingDocTemplate(BaseDocTemplate):
+class BookDocTemplate(BaseDocTemplate):
     def __init__(self, filename, **kwargs):
-        super().__init__(filename, **kwargs)
-        self.chapter_title = ""
+        BaseDocTemplate.__init__(self, filename, **kwargs)
+        self.addPageTemplates([
+            PageTemplate(
+                frames=Frame(self.leftMargin, self.bottomMargin, self.width, self.height, id='normal'),
+                onPage=self._add_page_number
+            )
+        ])
+        self.actual_pages = 0  # Track total PDF pages generated
 
-        frame = Frame(
-            self.leftMargin, self.bottomMargin,
-            self.width, self.height - 0.5 * inch,
-            id='normal'
-        )
-        template = PageTemplate(id='default', frames=frame,
-                                onPage=self.add_header_footer)
-        self.addPageTemplates([template])
-
-    def afterFlowable(self, flowable):
-        """Track chapter titles for TOC and header."""
-        if isinstance(flowable, Paragraph):
-            style_name = flowable.style.name
-            text = flowable.getPlainText()
-
-            if style_name == "Heading1":
-                self.chapter_title = text
-                self.notify('TOCEntry', (0, text, self.page))
-
-            elif style_name == "Heading2":
-                self.notify('TOCEntry', (1, text, self.page))
-
-    def add_header_footer(self, canvas, doc):
+    def _add_page_number(self, canvas, doc):
+        """Add page numbers starting from first content page"""
         canvas.saveState()
-        width, height = LETTER
-
-        # Header: current chapter
-        if self.chapter_title:
-            canvas.setFont('Helvetica-Oblique', 9)
-            canvas.drawString(doc.leftMargin, height - 0.5 * inch, self.chapter_title)
-
-        # Footer: page number
-        canvas.setFont('Helvetica', 9)
-        canvas.drawRightString(width - doc.rightMargin, 0.5 * inch, f"Page {doc.page}")
+        canvas.setFont('Times-Roman', 9)
+        current_pdf_page = canvas.getPageNumber()
+        self.actual_pages = max(self.actual_pages, current_pdf_page)
+        
+        # Start numbering from first page after copyright (page 3)
+        if current_pdf_page > 2:
+            displayed_number = current_pdf_page - 2
+            canvas.drawCentredString(
+                LETTER[0]/2.0,
+                inch * 0.75,
+                str(displayed_number)
+            )
         canvas.restoreState()
 
+    def afterFlowable(self, flowable):
+        """Handle TOC entries with accurate page numbers"""
+        if isinstance(flowable, TableOfContents):
+            return  # TOC handles its own entries
+        
+        if hasattr(flowable, 'style') and hasattr(flowable.style, 'name'):
+            if flowable.style.name in ['Chapter', 'Section']:
+                # Get current PDF page number from canvas
+                current_pdf_page = self.canv.getPageNumber()
+                text = flowable.getPlainText()
+                level = 0 if flowable.style.name == 'Chapter' else 1
+                
+                # Calculate displayed page number
+                displayed_page = max(0, current_pdf_page - 2)
+                self.notify('TOCEntry', (level, text, displayed_page))
 
 def generate_pdf(output_path, document_data):
-    doc = ChapterTrackingDocTemplate(output_path, pagesize=LETTER)
+    """Generate complete PDF with proper structure"""
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     styles = getSampleStyleSheet()
 
-    # Custom style for centered title page
+    # Create custom styles
     title_style = ParagraphStyle(
         "TitlePage",
         parent=styles["Title"],
-        alignment=1,  # center
-        fontSize=24,
+        alignment=1,
+        fontSize=36,
         spaceAfter=20,
         spaceBefore=150
     )
 
-    story = []
+    chapter_style = ParagraphStyle(
+        "Chapter",
+        parent=styles["Heading1"],
+        alignment=1,
+        fontSize=24,
+        spaceAfter=12
+    )
 
+    section_style = ParagraphStyle(
+        "Section",
+        parent=styles["Heading2"],
+        alignment=1,
+        fontSize=16,
+        spaceAfter=8
+    )
+
+    # Configure Table of Contents
     toc = TableOfContents()
     toc.levelStyles = [
-        ParagraphStyle(fontName='Helvetica-Bold', fontSize=14, name='TOCHeading1', leftIndent=20, spaceBefore=10),
-        ParagraphStyle(fontName='Helvetica', fontSize=12, name='TOCHeading2', leftIndent=40, spaceBefore=5),
+        ParagraphStyle(
+            name='TOCHeading1',
+            fontName='Helvetica-Bold',
+            fontSize=14,
+            leftIndent=20,
+            spaceBefore=10
+        ),
+        ParagraphStyle(
+            name='TOCHeading2',
+            fontName='Helvetica',
+            fontSize=12,
+            leftIndent=40,
+            spaceBefore=5
+        ),
     ]
 
-    story.append(Paragraph("Table of Contents", styles["Heading1"]))
-    story.append(Spacer(1, 0.2 * inch))
-    story.append(toc)
-    story.append(PageBreak())
-
-    def add_sections(sections, is_chapter=False, center_title=False):
-        for section in sections:
-            title = section.get("title", "Untitled")
-            content = section.get("content", "")
-            images = section.get("images", [])
-
-            heading_style = styles["Heading1"] if is_chapter else styles["Heading2"]
-            if center_title:
-                story.append(Paragraph(title, title_style))
-            else:
-                story.append(Paragraph(title, heading_style))
-            story.append(Spacer(1, 0.25 * inch))
-
-            for paragraph in content.split("\n\n"):
-                story.append(Paragraph(paragraph.strip(), styles["Normal"]))
-                story.append(Spacer(1, 0.15 * inch))
-
-            for img_path in images:
-                if os.path.exists(img_path):
-                    img = Image(img_path, width=5 * inch, height=3 * inch)
-                    story.append(img)
-                    story.append(Spacer(1, 0.25 * inch))
-                else:
-                    story.append(Paragraph(f"<i>Image not found: {img_path}</i>", styles["Normal"]))
-
-            story.append(PageBreak())
+    doc = BookDocTemplate(output_path, pagesize=LETTER)
+    story = []
 
     # Front Matter
     front = document_data.get("front_matter", [])
     if front:
-        # Treat the first front-matter item as title page
-        first = front[0]
-        add_sections([first], is_chapter=False, center_title=True)
+        # Title Page
+        story.append(Paragraph(front[0].get("title"), title_style))
+        story.append(PageBreak())
+        
+        # Copyright Page
         if len(front) > 1:
-            add_sections(front[1:], is_chapter=False)
+            story.append(Paragraph(front[1].get("title"), section_style))
+            for p in front[1].get("content", "").split("\n\n"):
+                story += [Paragraph(p.strip(), styles["Normal"]), Spacer(1, 0.15*inch)]
+            story.append(PageBreak())
+
+    # Table of Contents
+    story.append(Paragraph("Table of Contents", chapter_style))
+    story.append(Spacer(1, 0.2*inch))
+    story.append(toc)
+    story.append(PageBreak())
+
+    # Remaining Front Matter
+    if front and len(front) > 2:
+        for section in front[2:]:
+            story += process_section(section, section_style)
 
     # Chapters
-    add_sections(document_data.get("chapters", []), is_chapter=True)
+    for chapter in document_data.get("chapters", []):
+        story += process_section(chapter, chapter_style)
 
     # Back Matter
-    add_sections(document_data.get("back_matter", []), is_chapter=False)
+    for section in document_data.get("back_matter", []):
+        story += process_section(section, section_style)
 
-    doc.build(story)
+    # Remove final page break if exists
+    if story and isinstance(story[-1], PageBreak):
+        story.pop()
 
-# ✅ Example
+    doc.multiBuild(story)
+
+def process_section(section, title_style):
+    """Helper to process any section with content"""
+    elements = []
+    if section.get("title"):
+        elements.append(Paragraph(section["title"], title_style))
+    
+    if section.get("content"):
+        for p in section["content"].split("\n\n"):
+            elements += [Paragraph(p.strip(), getSampleStyleSheet()["Normal"]),
+                        Spacer(1, 0.15*inch)]
+    
+    if section.get("images"):
+        for img_path in section["images"]:
+            if os.path.exists(img_path):
+                elements.append(Image(img_path, width=5*inch, height=3*inch))
+            else:
+                elements.append(Paragraph(f"Image missing: {img_path}",
+                                       getSampleStyleSheet()["Italic"]))
+    
+    elements.append(PageBreak())
+    return elements
+
+# Example Usage
 if __name__ == "__main__":
     data = {
         "front_matter": [
             {
-                "title": "How To Write Your Wrongs\n\nBy M.K. Jowling",
-                "content": ""  # Title page has no body
+                "title": "How To Write Your Wrongs<br/><br/>By M.K. Jowling",
+                "content": "by M.K. Jowling"
             },
             {
                 "title": "Copyright Page",
-                "content": """<b>Copyright</b> ©️ 2025 by M.K. Jowling <br/><br/>\
+                "content": """<b>Copyright</b> ©️ 2025 <br/><br/>by M.K. Jowling <br/><br/>\
 All rights reserved. No part of this book may be reproduced, distributed, or transmitted in any form or by any means, \
 including photocopying, recording, or other electronic or mechanical methods, without prior written permission of the publisher, except in the case of \
 brief quotations embodied in critical reviews and certain other non-commercial uses permitted by copyright law. <br/><br/>\
 This is a work of fiction. Names, characters, places, and incidents are the product of the author's imagination or are used fictitiously. \
 Any resemblance to actual persons, living or dead, events, or locales is entirely coincidental. <br/><br/>\
-Cover design by Coco Lajuan Studios <br/>\
-Interior design by Apollo Studios <br/>\
-Published by McAuthor Publishing House <br/>\
-First Edition: April, 2025 <br/><br/>\
+Cover design by Coco Lajuan Studios <br/>
+Interior design by Apollo Studios <br/>
+Published by McAuthor Publishing House <br/>
+First Edition: May, 2025 <br/><br/>\
 Printed in the United States of America <br/><br/>\
-10 9 8 7 6 5 4 3 2 1"""
+10 9 8 7 6 5 4 3 2 1""",
+                 "images": []
             },
             {
                 "title": "Dedication",
                 "content": "Thank you to all who supported me."
             },
             {
-                "title": "Foreword",
-                "content": "To those who inspire."
-            },
-            {
                 "title": "Prologue",
-                "content": "To those who inspire."
+                "content": "Thank you to all who supported me."
             }
         ],
         "chapters": [
             {
                 "title": "Chapter 1: Origins",
                 "content": "It all began here...\n\nWith many stories to come.",
-                "images": ["example1.jpg"]
+                "images": []
             },
             {
                 "title": "Chapter 2: Discovery",
                 "content": "Challenges emerged.\n\nBut growth followed.",
-                "images": ["example2.jpg"]
+                "images": []
+            },
+            {
+                "title": "Chapter 3: Transformation",
+                "content": "It made me <i>different.</i>\n\n I'm new now.",
+                "images": []
             }
         ],
         "back_matter": [
             {
                 "title": "Epilogue",
-                "content": "Supplemental data and technical notes."
+                "content": "The journey continues..."
             },
             {
                 "title": "Afterword",
-                "content": "Supplemental data and technical notes."
+                "content": "Final thoughts from the author"
             },
             {
                 "title": "Acknowledgments",
-                "content": "The Creator of the Universe and all who supported me."
+                "content": "Thanks to everyone involved"
             }
         ]
     }
 
-    generate_pdf("longform_book_final.pdf", data)
+    generate_pdf("complete_book.pdf", data)
